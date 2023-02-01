@@ -315,7 +315,7 @@ mod test {
 
         let b2 = r2.encode_to_vec();
         let b3 = r3.encode_to_vec();
-        assert_ne!(b2, b3);
+        assert_eq!(b2, b3);
         // decode proto3 message
         let b3to2 = p2::HopMessage::decode(bytes::Bytes::from(b3)).expect("should be decodable");
         assert!(b3to2.status.is_none());
