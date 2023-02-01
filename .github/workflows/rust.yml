@@ -12,5 +12,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1
       - name: Run tests
         run: cd rust && cargo test --verbose
