@@ -1,5 +1,6 @@
 mod generated;
 
+use anyhow::anyhow;
 use quick_protobuf::{deserialize_from_slice, MessageWrite};
 use std::{fs::File, io::Read, vec};
 
@@ -26,12 +27,10 @@ fn verify_hop_msgs() -> anyhow::Result<()> {
         let result_from_3 = deserialize_from_slice::<p3::HopMessage>(&slice)?;
         let result_from_2 = deserialize_from_slice::<p2::HopMessage>(&slice)?;
 
-        let mismatch_err = Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!(
-                "Type mismatch in Hop message. 2: {:?}, 3: {:?}",
-                result_from_2, result_from_3
-            ),
+        let mismatch_err = Err(anyhow!(
+            "Type mismatch in Hop message. 2: {:?}, 3: {:?}",
+            result_from_2,
+            result_from_3
         ));
 
         if Some(result_from_2.type_pb) != result_from_3.type_pb {
@@ -106,12 +105,10 @@ fn verify_stop_msgs() -> anyhow::Result<()> {
         // Using &slice[0..] to not advance the slice
         let result_from_3 = deserialize_from_slice::<p3::StopMessage>(&slice)?;
         let result_from_2 = deserialize_from_slice::<p2::StopMessage>(&slice)?;
-        let mismatch_err = Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!(
-                "Type mismatch in stop message. 2: {:?}, 3: {:?}",
-                result_from_2, result_from_3
-            ),
+        let mismatch_err = Err(anyhow!(
+            "Type mismatch in stop message. 2: {:?}, 3: {:?}",
+            result_from_2,
+            result_from_3
         ));
 
         if Some(result_from_2.type_pb) != result_from_3.type_pb {
@@ -362,8 +359,7 @@ mod test {
 
     #[test]
     fn test_decode_empty_buffer() {
-        let message = deserialize_from_slice::<p2::HopMessage>(&[])
-            .expect("should decode");
+        let message = deserialize_from_slice::<p2::HopMessage>(&[]).expect("should decode");
         assert_eq!(message.type_pb, p2::mod_HopMessage::Type::RESERVE)
     }
 
