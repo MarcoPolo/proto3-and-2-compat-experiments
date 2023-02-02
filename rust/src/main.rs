@@ -1,16 +1,18 @@
-use std::{
-    fs::File,
-    io::{Read, Write},
-    vec,
-};
+mod generated;
 
-use prost::Message;
+use anyhow::{anyhow, Context};
+use quick_protobuf::{BytesReader, Writer};
+use std::{fs::File, io::Read, vec};
+use std::io::BufWriter;
+
+use generated::p2;
+use generated::p3;
 use rand::{rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 
 const HOP_FILE: &str = "../randomHopMsgs.bin";
 const STOP_FILE: &str = "../randomStopMsgs.bin";
 
-fn verify_hop_msgs() -> std::io::Result<()> {
+fn verify_hop_msgs() -> anyhow::Result<()> {
     // Hop messages
     let mut f = File::open(HOP_FILE)?;
 
@@ -18,21 +20,22 @@ fn verify_hop_msgs() -> std::io::Result<()> {
     let mut data: Vec<u8> = vec![];
     f.read_to_end(&mut data)?;
 
-    let mut slice = data.as_slice();
+    let slice = data.as_slice();
 
-    while slice.len() > 0 {
-        // Using &slice[0..] to not advance the slice
-        let result_from_3 = p3::HopMessage::decode_length_delimited(&slice[0..])?;
-        let result_from_2 = p2::HopMessage::decode_length_delimited(&mut slice)?;
-        let mismatch_err = Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!(
-                "Type mismatch in Hop message. 2: {:?}, 3: {:?}",
-                result_from_2, result_from_3
-            ),
+    let mut reader3 = BytesReader::from_bytes(&slice);
+    let mut reader2 = BytesReader::from_bytes(&slice);
+
+    while !reader3.is_eof() {
+        let result_from_3 = reader3.read_message::<p3::HopMessage>(&slice)?;
+        let result_from_2 = reader2.read_message::<p2::HopMessage>(&slice)?;
+
+        let mismatch_err = Err(anyhow!(
+            "Type mismatch in Hop message. 2: {:?}, 3: {:?}",
+            result_from_2,
+            result_from_3
         ));
 
-        if Some(result_from_2.r#type) != result_from_3.r#type {
+        if !compare_type_hop(&result_from_2, &result_from_3)? {
             return mismatch_err;
         }
 
@@ -85,34 +88,72 @@ fn verify_hop_msgs() -> std::io::Result<()> {
             return mismatch_err;
         }
 
-        if result_from_2.status != result_from_3.status {
+        if !compare_status(result_from_2.status, result_from_3.status) {
             return mismatch_err;
         }
     }
     Ok(())
 }
 
-fn verify_stop_msgs() -> std::io::Result<()> {
+fn compare_type_hop(result_from_2: &p2::HopMessage, result_from_3: &p3::HopMessage) -> anyhow::Result<bool> {
+    Ok(match (result_from_2.type_pb, result_from_3.type_pb.context("missing type")?) {
+        (p2::mod_HopMessage::Type::STATUS, p3::mod_HopMessage::Type::STATUS) => true,
+        (p2::mod_HopMessage::Type::RESERVE, p3::mod_HopMessage::Type::RESERVE) => true,
+        (p2::mod_HopMessage::Type::CONNECT, p3::mod_HopMessage::Type::CONNECT) => true,
+        _ => false
+    })
+}
+
+fn compare_type_stop(result_from_2: &p2::StopMessage, result_from_3: &p3::StopMessage) -> anyhow::Result<bool> {
+    Ok(match (result_from_2.type_pb, result_from_3.type_pb.context("missing type")?) {
+        (p2::mod_StopMessage::Type::STATUS, p3::mod_StopMessage::Type::STATUS) => true,
+        (p2::mod_StopMessage::Type::CONNECT, p3::mod_StopMessage::Type::CONNECT) => true,
+        _ => false
+    })
+}
+
+fn compare_status(s1: Option<p2::Status>, s2: Option<p3::Status>) -> bool {
+    let (s1, s2) = match (s1, s2) {
+        (Some(s1), Some(s2)) => (s1, s2),
+        (None, None) => return true,
+        _ => return false
+    };
+
+    match (s1, s2) {
+        (p2::Status::OK, p3::Status::OK) => true,
+        (p2::Status::RESERVATION_REFUSED, p3::Status::RESERVATION_REFUSED) => true,
+        (p2::Status::RESOURCE_LIMIT_EXCEEDED, p3::Status::RESOURCE_LIMIT_EXCEEDED) => true,
+        (p2::Status::PERMISSION_DENIED, p3::Status::PERMISSION_DENIED) => true,
+        (p2::Status::CONNECTION_FAILED, p3::Status::CONNECTION_FAILED) => true,
+        (p2::Status::NO_RESERVATION, p3::Status::NO_RESERVATION) => true,
+        (p2::Status::MALFORMED_MESSAGE, p3::Status::MALFORMED_MESSAGE) => true,
+        (p2::Status::UNEXPECTED_MESSAGE, p3::Status::UNEXPECTED_MESSAGE) => true,
+        _ => false
+    }
+}
+
+fn verify_stop_msgs() -> anyhow::Result<()> {
     let mut f = File::open(STOP_FILE)?;
 
     // read the message
     let mut data: Vec<u8> = vec![];
     f.read_to_end(&mut data)?;
 
-    let mut slice = data.as_slice();
-    while slice.len() > 0 {
-        // Using &slice[0..] to not advance the slice
-        let result_from_3 = p3::StopMessage::decode_length_delimited(&slice[0..])?;
-        let result_from_2 = p2::StopMessage::decode_length_delimited(&mut slice)?;
-        let mismatch_err = Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!(
-                "Type mismatch in stop message. 2: {:?}, 3: {:?}",
-                result_from_2, result_from_3
-            ),
+    let slice = data.as_slice();
+    let mut reader3 = BytesReader::from_bytes(&slice);
+    let mut reader2 = BytesReader::from_bytes(&slice);
+
+    while !reader3.is_eof() {
+        let result_from_3 = reader3.read_message::<p3::StopMessage>(&slice)?;
+        let result_from_2 = reader2.read_message::<p2::StopMessage>(&slice)?;
+
+        let mismatch_err = Err(anyhow!(
+            "Type mismatch in stop message. 2: {:?}, 3: {:?}",
+            result_from_2,
+            result_from_3
         ));
 
-        if Some(result_from_2.r#type) != result_from_3.r#type {
+        if !compare_type_stop(&result_from_2, &result_from_3)? {
             return mismatch_err;
         }
 
@@ -146,14 +187,14 @@ fn verify_stop_msgs() -> std::io::Result<()> {
             return mismatch_err;
         }
 
-        if result_from_2.status != result_from_3.status {
+        if !compare_status(result_from_2.status, result_from_3.status) {
             return mismatch_err;
         }
     }
     Ok(())
 }
 
-fn main() -> std::io::Result<()> {
+fn main() -> anyhow::Result<()> {
     let cmd = std::env::args().nth(1).unwrap_or("".to_string());
     if cmd == "verify" {
         verify_hop_msgs()?;
@@ -161,30 +202,24 @@ fn main() -> std::io::Result<()> {
         return Ok(());
     }
 
-    let mut file = File::create(HOP_FILE).unwrap();
+    let file = BufWriter::new(File::create(HOP_FILE)?);
+    let mut writer = Writer::new(file);
+
     // Generate 10_000 random messages
     for seed in 0..10_000 {
         let mut rng = StdRng::seed_from_u64(seed);
-        let b = gen_hop_msg(&mut rng).encode_length_delimited_to_vec();
-        file.write_all(&b)?;
+        writer.write_message(&gen_hop_msg(&mut rng))?
     }
 
-    let mut file = File::create(STOP_FILE).unwrap();
+    let file = BufWriter::new(File::create(STOP_FILE)?);
+    let mut writer = Writer::new(file);
+
     for seed in 0..10_000 {
         let mut rng = StdRng::seed_from_u64(seed);
-        let b = gen_stop_msg(&mut rng).encode_length_delimited_to_vec();
-        file.write_all(&b)?;
+        writer.write_message(&gen_stop_msg(&mut rng))?
     }
 
     Ok(())
-}
-
-pub mod p2 {
-    include!(concat!(env!("OUT_DIR"), "/p2.rs"));
-}
-
-pub mod p3 {
-    include!(concat!(env!("OUT_DIR"), "/p3.rs"));
 }
 
 fn gen_addrs(rng: &mut StdRng) -> Vec<Vec<u8>> {
@@ -231,72 +266,69 @@ fn gen_limit(rng: &mut StdRng) -> p3::Limit {
 
 fn gen_status(rng: &mut StdRng) -> p3::Status {
     let statuses = [
-        p3::Status::Ok,
-        p3::Status::ReservationRefused,
-        p3::Status::ResourceLimitExceeded,
-        p3::Status::PermissionDenied,
-        p3::Status::ConnectionFailed,
-        p3::Status::NoReservation,
-        p3::Status::MalformedMessage,
-        p3::Status::UnexpectedMessage,
+        p3::Status::OK,
+        p3::Status::RESERVATION_REFUSED,
+        p3::Status::RESOURCE_LIMIT_EXCEEDED,
+        p3::Status::PERMISSION_DENIED,
+        p3::Status::CONNECTION_FAILED,
+        p3::Status::NO_RESERVATION,
+        p3::Status::MALFORMED_MESSAGE,
+        p3::Status::UNEXPECTED_MESSAGE,
     ];
     *statuses.choose(rng).unwrap()
 }
 
 fn gen_hop_msg(rng: &mut StdRng) -> p3::HopMessage {
-    let typ = p3::hop_message::Type::from_i32(rng.gen_range(0..3)).unwrap();
+    let typ = p3::mod_HopMessage::Type::from(rng.gen_range(0..3));
     p3::HopMessage {
-        r#type: Some(typ as i32),
+        type_pb: Some(typ),
         peer: rng.gen::<bool>().then(|| gen_peer(rng)),
         reservation: rng.gen::<bool>().then(|| gen_reservation(rng)),
         limit: rng.gen::<bool>().then(|| gen_limit(rng)),
-        status: rng.gen::<bool>().then(|| gen_status(rng) as i32),
+        status: rng.gen::<bool>().then(|| gen_status(rng)),
     }
 }
 
 fn gen_stop_msg(rng: &mut StdRng) -> p3::StopMessage {
-    let typ = p3::stop_message::Type::from_i32(rng.gen_range(0..2)).unwrap();
+    let typ = p3::mod_StopMessage::Type::from(rng.gen_range(0..2));
     p3::StopMessage {
-        r#type: Some(typ as i32),
+        type_pb: Some(typ),
         peer: rng.gen::<bool>().then(|| gen_peer(rng)),
         limit: rng.gen::<bool>().then(|| gen_limit(rng)),
-        status: rng.gen::<bool>().then(|| gen_status(rng) as i32),
+        status: rng.gen::<bool>().then(|| gen_status(rng)),
     }
 }
 
 #[cfg(test)]
 mod test {
-
+    use crate::generated::{p2, p3};
     use crate::{verify_hop_msgs, verify_stop_msgs};
-
-    use super::{p2, p3};
-    use prost::Message;
+    use quick_protobuf::{deserialize_from_slice, serialize_into_vec};
 
     #[test]
     fn test_hop_reserve() {
         let r2 = p2::HopMessage {
-            r#type: p2::hop_message::Type::Reserve as i32,
+            type_pb: p2::mod_HopMessage::Type::RESERVE,
             peer: None,
             status: None,
             limit: None,
             reservation: None,
         };
         let r3 = p3::HopMessage {
-            r#type: Some(p3::hop_message::Type::Reserve as i32),
+            type_pb: Some(p3::mod_HopMessage::Type::RESERVE),
             peer: None,
             status: None,
             limit: None,
             reservation: None,
         };
 
-        let b2 = r2.encode_to_vec();
-        let b3 = r3.encode_to_vec();
+        let b2 = serialize_into_vec(&r2).unwrap();
+        let b3 = serialize_into_vec(&r3).unwrap();
 
         assert_eq!(b2, b3);
-
-        let b2to3 = p3::HopMessage::decode(bytes::Bytes::from(b2)).expect("should be decodable");
+        let b2to3 = deserialize_from_slice::<p3::HopMessage>(&b2).expect("should be decodable");
         assert_eq!(b2to3, r3);
-        let b3to2 = p2::HopMessage::decode(bytes::Bytes::from(b3)).expect("should be decodable");
+        let b3to2 = deserialize_from_slice::<p2::HopMessage>(&b3).expect("should be decodable");
         assert_eq!(b3to2, r2);
     }
 
@@ -304,80 +336,81 @@ mod test {
     fn test_hop_no_status() {
         let r2 = p2::HopMessage {
             status: None,
-            r#type: p2::hop_message::Type::Reserve as i32,
+            type_pb: p2::mod_HopMessage::Type::RESERVE,
             ..Default::default()
         };
         let r3 = p3::HopMessage {
             status: None,
-            r#type: Some(p3::hop_message::Type::Reserve as i32),
+            type_pb: Some(p3::mod_HopMessage::Type::RESERVE),
             ..Default::default()
         };
 
-        let b2 = r2.encode_to_vec();
-        let b3 = r3.encode_to_vec();
+        let b2 = serialize_into_vec(&r2).unwrap();
+        let b3 = serialize_into_vec(&r3).unwrap();
+
         assert_eq!(b2, b3);
         // decode proto3 message
-        let b3to2 = p2::HopMessage::decode(bytes::Bytes::from(b3)).expect("should be decodable");
+        let b3to2 = deserialize_from_slice::<p2::HopMessage>(&b3).expect("should be decodable");
         assert!(b3to2.status.is_none());
-        let b2to3 = p3::HopMessage::decode(bytes::Bytes::from(b2)).expect("should be decodable");
+        let b2to3 = deserialize_from_slice::<p3::HopMessage>(&b2).expect("should be decodable");
         assert!(b2to3.status.is_none());
     }
 
     #[test]
     fn test_explicit_values_wire() {
         let r2 = p2::HopMessage {
-            r#type: p2::hop_message::Type::Connect as i32,
+            type_pb: p2::mod_HopMessage::Type::CONNECT,
             // proto2 will serialize the explicitly set enum
-            status: Some(p2::Status::Ok as i32),
+            status: Some(p2::Status::OK),
             ..Default::default()
         };
 
         let r3 = p3::HopMessage {
-            r#type: Some(p3::hop_message::Type::Connect as i32),
-            status: Some(p3::Status::Ok as i32),
+            type_pb: Some(p3::mod_HopMessage::Type::CONNECT),
+            status: Some(p3::Status::OK),
             ..Default::default()
         };
 
-        let b2 = r2.encode_to_vec();
-        let b3 = r3.encode_to_vec();
+        let b2 = serialize_into_vec(&r2).unwrap();
+        let b3 = serialize_into_vec(&r3).unwrap();
         assert_eq!(b2, b3);
 
         let r2 = p2::HopMessage {
-            r#type: p2::hop_message::Type::Connect as i32,
+            type_pb: p2::mod_HopMessage::Type::CONNECT,
             ..Default::default()
         };
 
         let r3 = p3::HopMessage {
-            r#type: Some(p3::hop_message::Type::Connect as i32),
+            type_pb: Some(p3::mod_HopMessage::Type::CONNECT),
             ..Default::default()
         };
 
-        let b2 = r2.encode_to_vec();
-        let b3 = r3.encode_to_vec();
+        let b2 = serialize_into_vec(&r2).unwrap();
+        let b3 = serialize_into_vec(&r3).unwrap();
         assert_eq!(b2, b3);
     }
 
     #[test]
     fn test_proto3_default_status_serialized_can_decode() {
         let r3 = p3::HopMessage {
-            r#type: Some(p3::hop_message::Type::Connect as i32),
-            status: Some(p3::Status::Unused as i32),
+            type_pb: Some(p3::mod_HopMessage::Type::CONNECT),
+            status: Some(p3::Status::UNUSED),
             ..Default::default()
         };
 
-        let b3 = r3.encode_to_vec();
-        let b3to2 = p2::HopMessage::decode(bytes::Bytes::from(b3)).expect("should be decodable");
-        assert_eq!(b3to2.status, Some(0))
+        let b3 = serialize_into_vec(&r3).unwrap();
+        let b3to2 = deserialize_from_slice::<p2::HopMessage>(&b3).expect("should be decodable");
+        assert_eq!(b3to2.status, Some(p2::Status::OK))
     }
 
     #[test]
     fn test_decode_empty_buffer() {
-        let message = p2::HopMessage::decode(bytes::Bytes::new()).expect("should decode");
-        assert_eq!(message.r#type, 0)
+        let message = deserialize_from_slice::<p2::HopMessage>(&[]).expect("should decode");
+        assert_eq!(message.type_pb, p2::mod_HopMessage::Type::RESERVE)
     }
 
     #[test]
-    fn test_random_msgs() -> std::io::Result<()> {
+    fn test_random_msgs() -> anyhow::Result<()> {
         verify_hop_msgs()?;
         verify_stop_msgs()?;
         Ok(())
