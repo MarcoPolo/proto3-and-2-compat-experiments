@@ -1,7 +1,7 @@
 mod generated;
 
-use anyhow::anyhow;
-use quick_protobuf::{deserialize_from_slice, MessageWrite};
+use anyhow::{anyhow, Context};
+use quick_protobuf::{BytesReader, MessageWrite};
 use std::{fs::File, io::Read, vec};
 
 use generated::p2;
@@ -19,13 +19,14 @@ fn verify_hop_msgs() -> anyhow::Result<()> {
     let mut data: Vec<u8> = vec![];
     f.read_to_end(&mut data)?;
 
-    let mut slice = data.as_slice();
+    let slice = data.as_slice();
 
-    while slice.len() > 0 {
-        // Using &slice[0..] to not advance the slice
+    let mut reader3 = BytesReader::from_bytes(&slice);
+    let mut reader2 = BytesReader::from_bytes(&slice);
 
-        let result_from_3 = deserialize_from_slice::<p3::HopMessage>(&slice)?;
-        let result_from_2 = deserialize_from_slice::<p2::HopMessage>(&slice)?;
+    while !reader3.is_eof() {
+        let result_from_3 = reader3.read_message::<p3::HopMessage>(&slice)?;
+        let result_from_2 = reader2.read_message::<p2::HopMessage>(&slice)?;
 
         let mismatch_err = Err(anyhow!(
             "Type mismatch in Hop message. 2: {:?}, 3: {:?}",
@@ -33,7 +34,7 @@ fn verify_hop_msgs() -> anyhow::Result<()> {
             result_from_3
         ));
 
-        if Some(result_from_2.type_pb) != result_from_3.type_pb {
+        if !compare_type_hop(&result_from_2, &result_from_3)? {
             return mismatch_err;
         }
 
@@ -86,11 +87,48 @@ fn verify_hop_msgs() -> anyhow::Result<()> {
             return mismatch_err;
         }
 
-        if result_from_2.status != result_from_3.status {
+        if !compare_status(result_from_2.status, result_from_3.status) {
             return mismatch_err;
         }
     }
     Ok(())
+}
+
+fn compare_type_hop(result_from_2: &p2::HopMessage, result_from_3: &p3::HopMessage) -> anyhow::Result<bool> {
+    Ok(match (result_from_2.type_pb, result_from_3.type_pb.context("missing type")?) {
+        (p2::mod_HopMessage::Type::STATUS, p3::mod_HopMessage::Type::STATUS) => true,
+        (p2::mod_HopMessage::Type::RESERVE, p3::mod_HopMessage::Type::RESERVE) => true,
+        (p2::mod_HopMessage::Type::CONNECT, p3::mod_HopMessage::Type::CONNECT) => true,
+        _ => false
+    })
+}
+
+fn compare_type_stop(result_from_2: &p2::StopMessage, result_from_3: &p3::StopMessage) -> anyhow::Result<bool> {
+    Ok(match (result_from_2.type_pb, result_from_3.type_pb.context("missing type")?) {
+        (p2::mod_StopMessage::Type::STATUS, p3::mod_StopMessage::Type::STATUS) => true,
+        (p2::mod_StopMessage::Type::CONNECT, p3::mod_StopMessage::Type::CONNECT) => true,
+        _ => false
+    })
+}
+
+fn compare_status(s1: Option<p2::Status>, s2: Option<p3::Status>) -> bool {
+    let (s1, s2) = match (s1, s2) {
+        (Some(s1), Some(s2)) => (s1, s2),
+        (None, None) => return true,
+        _ => return false
+    };
+
+    match (s1, s2) {
+        (p2::Status::OK, p3::Status::OK) => true,
+        (p2::Status::RESERVATION_REFUSED, p3::Status::RESERVATION_REFUSED) => true,
+        (p2::Status::RESOURCE_LIMIT_EXCEEDED, p3::Status::RESOURCE_LIMIT_EXCEEDED) => true,
+        (p2::Status::PERMISSION_DENIED, p3::Status::PERMISSION_DENIED) => true,
+        (p2::Status::CONNECTION_FAILED, p3::Status::CONNECTION_FAILED) => true,
+        (p2::Status::NO_RESERVATION, p3::Status::NO_RESERVATION) => true,
+        (p2::Status::MALFORMED_MESSAGE, p3::Status::MALFORMED_MESSAGE) => true,
+        (p2::Status::UNEXPECTED_MESSAGE, p3::Status::UNEXPECTED_MESSAGE) => true,
+        _ => false
+    }
 }
 
 fn verify_stop_msgs() -> anyhow::Result<()> {
@@ -100,18 +138,21 @@ fn verify_stop_msgs() -> anyhow::Result<()> {
     let mut data: Vec<u8> = vec![];
     f.read_to_end(&mut data)?;
 
-    let mut slice = data.as_slice();
-    while slice.len() > 0 {
-        // Using &slice[0..] to not advance the slice
-        let result_from_3 = deserialize_from_slice::<p3::StopMessage>(&slice)?;
-        let result_from_2 = deserialize_from_slice::<p2::StopMessage>(&slice)?;
+    let slice = data.as_slice();
+    let mut reader3 = BytesReader::from_bytes(&slice);
+    let mut reader2 = BytesReader::from_bytes(&slice);
+
+    while !reader3.is_eof() {
+        let result_from_3 = reader3.read_message::<p3::StopMessage>(&slice)?;
+        let result_from_2 = reader2.read_message::<p2::StopMessage>(&slice)?;
+
         let mismatch_err = Err(anyhow!(
             "Type mismatch in stop message. 2: {:?}, 3: {:?}",
             result_from_2,
             result_from_3
         ));
 
-        if Some(result_from_2.type_pb) != result_from_3.type_pb {
+        if !compare_type_stop(&result_from_2, &result_from_3)? {
             return mismatch_err;
         }
 
@@ -145,7 +186,7 @@ fn verify_stop_msgs() -> anyhow::Result<()> {
             return mismatch_err;
         }
 
-        if result_from_2.status != result_from_3.status {
+        if !compare_status(result_from_2.status, result_from_3.status) {
             return mismatch_err;
         }
     }
@@ -254,7 +295,6 @@ fn gen_stop_msg(rng: &mut StdRng) -> p3::StopMessage {
 
 #[cfg(test)]
 mod test {
-    use super::*;
     use crate::generated::{p2, p3};
     use crate::{verify_hop_msgs, verify_stop_msgs};
     use quick_protobuf::{deserialize_from_slice, serialize_into_vec};

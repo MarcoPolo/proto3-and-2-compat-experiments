@@ -9,7 +9,6 @@
 #![cfg_attr(rustfmt, rustfmt_skip)]
 
 
-use std::borrow::Cow;
 use quick_protobuf::{MessageInfo, MessageRead, MessageWrite, BytesReader, Writer, WriterBackend, Result};
 use quick_protobuf::sizeofs::*;
 use super::*;
@@ -68,25 +67,38 @@ impl<'a> From<&'a str> for Status {
 }
 
 #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Debug, Default, PartialEq, Clone)]
-pub struct HopMessage<'a> {
-    pub type_pb: p3::mod_HopMessage::Type,
-    pub peer: Option<p3::Peer<'a>>,
-    pub reservation: Option<p3::Reservation<'a>>,
+#[derive(Debug, PartialEq, Clone)]
+pub struct HopMessage {
+    pub type_pb: Option<p3::mod_HopMessage::Type>,
+    pub peer: Option<p3::Peer>,
+    pub reservation: Option<p3::Reservation>,
     pub limit: Option<p3::Limit>,
-    pub status: p3::Status,
+    pub status: Option<p3::Status>,
 }
 
-impl<'a> MessageRead<'a> for HopMessage<'a> {
+
+impl Default for HopMessage {
+    fn default() -> Self {
+        Self {
+            type_pb: None,
+            peer: None,
+            reservation: None,
+            limit: None,
+            status: None,
+        }
+    }
+}
+
+impl<'a> MessageRead<'a> for HopMessage {
     fn from_reader(r: &mut BytesReader, bytes: &'a [u8]) -> Result<Self> {
         let mut msg = Self::default();
         while !r.is_eof() {
             match r.next_tag(bytes) {
-                Ok(8) => msg.type_pb = r.read_enum(bytes)?,
+                Ok(8) => msg.type_pb = Some(r.read_enum(bytes)?),
                 Ok(18) => msg.peer = Some(r.read_message::<p3::Peer>(bytes)?),
                 Ok(26) => msg.reservation = Some(r.read_message::<p3::Reservation>(bytes)?),
                 Ok(34) => msg.limit = Some(r.read_message::<p3::Limit>(bytes)?),
-                Ok(40) => msg.status = r.read_enum(bytes)?,
+                Ok(40) => msg.status = Some(r.read_enum(bytes)?),
                 Ok(t) => { r.read_unknown(bytes, t)?; }
                 Err(e) => return Err(e),
             }
@@ -95,22 +107,22 @@ impl<'a> MessageRead<'a> for HopMessage<'a> {
     }
 }
 
-impl<'a> MessageWrite for HopMessage<'a> {
+impl MessageWrite for HopMessage {
     fn get_size(&self) -> usize {
         0
-        + if self.type_pb == p3::mod_HopMessage::Type::RESERVE { 0 } else { 1 + sizeof_varint(*(&self.type_pb) as u64) }
-        + self.peer.as_ref().map_or(0, |m| 1 + sizeof_len((m).get_size()))
-        + self.reservation.as_ref().map_or(0, |m| 1 + sizeof_len((m).get_size()))
-        + self.limit.as_ref().map_or(0, |m| 1 + sizeof_len((m).get_size()))
-        + if self.status == p3::Status::UNUSED { 0 } else { 1 + sizeof_varint(*(&self.status) as u64) }
+        + if self.type_pb.is_some() { 1 + sizeof_varint((*(self.type_pb.as_ref().unwrap())) as u64) } else { 0 }
+        + if self.peer.is_some() { 1 + sizeof_len((self.peer.as_ref().unwrap()).get_size()) } else { 0 }
+        + if self.reservation.is_some() { 1 + sizeof_len((self.reservation.as_ref().unwrap()).get_size()) } else { 0 }
+        + if self.limit.is_some() { 1 + sizeof_len((self.limit.as_ref().unwrap()).get_size()) } else { 0 }
+        + if self.status.is_some() { 1 + sizeof_varint((*(self.status.as_ref().unwrap())) as u64) } else { 0 }
     }
 
     fn write_message<W: WriterBackend>(&self, w: &mut Writer<W>) -> Result<()> {
-        if self.type_pb != p3::mod_HopMessage::Type::RESERVE { w.write_with_tag(8, |w| w.write_enum(*&self.type_pb as i32))?; }
-        if let Some(ref s) = self.peer { w.write_with_tag(18, |w| w.write_message(s))?; }
-        if let Some(ref s) = self.reservation { w.write_with_tag(26, |w| w.write_message(s))?; }
-        if let Some(ref s) = self.limit { w.write_with_tag(34, |w| w.write_message(s))?; }
-        if self.status != p3::Status::UNUSED { w.write_with_tag(40, |w| w.write_enum(*&self.status as i32))?; }
+        if self.type_pb.is_some() { w.write_with_tag(8, |w| w.write_enum(*(self.type_pb.as_ref().unwrap()) as i32))?; }
+        if self.peer.is_some() { w.write_with_tag(18, |w| w.write_message(self.peer.as_ref().unwrap()))?; }
+        if self.reservation.is_some() { w.write_with_tag(26, |w| w.write_message(self.reservation.as_ref().unwrap()))?; }
+        if self.limit.is_some() { w.write_with_tag(34, |w| w.write_message(self.limit.as_ref().unwrap()))?; }
+        if self.status.is_some() { w.write_with_tag(40, |w| w.write_enum(*(self.status.as_ref().unwrap()) as i32))?; }
         Ok(())
     }
 }
@@ -156,23 +168,35 @@ impl<'a> From<&'a str> for Type {
 }
 
 #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Debug, Default, PartialEq, Clone)]
-pub struct StopMessage<'a> {
-    pub type_pb: p3::mod_StopMessage::Type,
-    pub peer: Option<p3::Peer<'a>>,
+#[derive(Debug, PartialEq, Clone)]
+pub struct StopMessage {
+    pub type_pb: Option<p3::mod_StopMessage::Type>,
+    pub peer: Option<p3::Peer>,
     pub limit: Option<p3::Limit>,
-    pub status: p3::Status,
+    pub status: Option<p3::Status>,
 }
 
-impl<'a> MessageRead<'a> for StopMessage<'a> {
+
+impl Default for StopMessage {
+    fn default() -> Self {
+        Self {
+            type_pb: None,
+            peer: None,
+            limit: None,
+            status: None,
+        }
+    }
+}
+
+impl<'a> MessageRead<'a> for StopMessage {
     fn from_reader(r: &mut BytesReader, bytes: &'a [u8]) -> Result<Self> {
         let mut msg = Self::default();
         while !r.is_eof() {
             match r.next_tag(bytes) {
-                Ok(8) => msg.type_pb = r.read_enum(bytes)?,
+                Ok(8) => msg.type_pb = Some(r.read_enum(bytes)?),
                 Ok(18) => msg.peer = Some(r.read_message::<p3::Peer>(bytes)?),
                 Ok(26) => msg.limit = Some(r.read_message::<p3::Limit>(bytes)?),
-                Ok(32) => msg.status = r.read_enum(bytes)?,
+                Ok(32) => msg.status = Some(r.read_enum(bytes)?),
                 Ok(t) => { r.read_unknown(bytes, t)?; }
                 Err(e) => return Err(e),
             }
@@ -181,20 +205,20 @@ impl<'a> MessageRead<'a> for StopMessage<'a> {
     }
 }
 
-impl<'a> MessageWrite for StopMessage<'a> {
+impl MessageWrite for StopMessage {
     fn get_size(&self) -> usize {
         0
-        + if self.type_pb == p3::mod_StopMessage::Type::CONNECT { 0 } else { 1 + sizeof_varint(*(&self.type_pb) as u64) }
-        + self.peer.as_ref().map_or(0, |m| 1 + sizeof_len((m).get_size()))
-        + self.limit.as_ref().map_or(0, |m| 1 + sizeof_len((m).get_size()))
-        + if self.status == p3::Status::UNUSED { 0 } else { 1 + sizeof_varint(*(&self.status) as u64) }
+        + if self.type_pb.is_some() { 1 + sizeof_varint((*(self.type_pb.as_ref().unwrap())) as u64) } else { 0 }
+        + if self.peer.is_some() { 1 + sizeof_len((self.peer.as_ref().unwrap()).get_size()) } else { 0 }
+        + if self.limit.is_some() { 1 + sizeof_len((self.limit.as_ref().unwrap()).get_size()) } else { 0 }
+        + if self.status.is_some() { 1 + sizeof_varint((*(self.status.as_ref().unwrap())) as u64) } else { 0 }
     }
 
     fn write_message<W: WriterBackend>(&self, w: &mut Writer<W>) -> Result<()> {
-        if self.type_pb != p3::mod_StopMessage::Type::CONNECT { w.write_with_tag(8, |w| w.write_enum(*&self.type_pb as i32))?; }
-        if let Some(ref s) = self.peer { w.write_with_tag(18, |w| w.write_message(s))?; }
-        if let Some(ref s) = self.limit { w.write_with_tag(26, |w| w.write_message(s))?; }
-        if self.status != p3::Status::UNUSED { w.write_with_tag(32, |w| w.write_enum(*&self.status as i32))?; }
+        if self.type_pb.is_some() { w.write_with_tag(8, |w| w.write_enum(*(self.type_pb.as_ref().unwrap()) as i32))?; }
+        if self.peer.is_some() { w.write_with_tag(18, |w| w.write_message(self.peer.as_ref().unwrap()))?; }
+        if self.limit.is_some() { w.write_with_tag(26, |w| w.write_message(self.limit.as_ref().unwrap()))?; }
+        if self.status.is_some() { w.write_with_tag(32, |w| w.write_enum(*(self.status.as_ref().unwrap()) as i32))?; }
         Ok(())
     }
 }
@@ -237,19 +261,29 @@ impl<'a> From<&'a str> for Type {
 }
 
 #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Debug, Default, PartialEq, Clone)]
-pub struct Peer<'a> {
-    pub id: Cow<'a, [u8]>,
-    pub addrs: Vec<Cow<'a, [u8]>>,
+#[derive(Debug, PartialEq, Clone)]
+pub struct Peer {
+    pub id: Option<Vec<u8>>,
+    pub addrs: Vec<Vec<u8>>,
 }
 
-impl<'a> MessageRead<'a> for Peer<'a> {
+
+impl Default for Peer {
+    fn default() -> Self {
+        Self {
+            id: None,
+            addrs: Vec::new(),
+        }
+    }
+}
+
+impl<'a> MessageRead<'a> for Peer {
     fn from_reader(r: &mut BytesReader, bytes: &'a [u8]) -> Result<Self> {
         let mut msg = Self::default();
         while !r.is_eof() {
             match r.next_tag(bytes) {
-                Ok(10) => msg.id = r.read_bytes(bytes).map(Cow::Borrowed)?,
-                Ok(18) => msg.addrs.push(r.read_bytes(bytes).map(Cow::Borrowed)?),
+                Ok(10) => msg.id = Some(r.read_bytes(bytes)?.to_owned()),
+                Ok(18) => msg.addrs.push(r.read_bytes(bytes)?.to_owned()),
                 Ok(t) => { r.read_unknown(bytes, t)?; }
                 Err(e) => return Err(e),
             }
@@ -258,36 +292,47 @@ impl<'a> MessageRead<'a> for Peer<'a> {
     }
 }
 
-impl<'a> MessageWrite for Peer<'a> {
+impl MessageWrite for Peer {
     fn get_size(&self) -> usize {
         0
-        + if self.id == Cow::Borrowed(b"") { 0 } else { 1 + sizeof_len((&self.id).len()) }
+        + if self.id.is_some() { 1 + sizeof_len((self.id.as_ref().unwrap()).len()) } else { 0 }
         + self.addrs.iter().map(|s| 1 + sizeof_len((s).len())).sum::<usize>()
     }
 
     fn write_message<W: WriterBackend>(&self, w: &mut Writer<W>) -> Result<()> {
-        if self.id != Cow::Borrowed(b"") { w.write_with_tag(10, |w| w.write_bytes(&**&self.id))?; }
-        for s in &self.addrs { w.write_with_tag(18, |w| w.write_bytes(&**s))?; }
+        if self.id.is_some() { w.write_with_tag(10, |w| w.write_bytes(&self.id.as_ref().unwrap()))?; }
+        for s in &self.addrs { w.write_with_tag(18, |w| w.write_bytes(s))?; }
         Ok(())
     }
 }
 
 #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Debug, Default, PartialEq, Clone)]
-pub struct Reservation<'a> {
-    pub expire: u64,
-    pub addrs: Vec<Cow<'a, [u8]>>,
-    pub voucher: Cow<'a, [u8]>,
+#[derive(Debug, PartialEq, Clone)]
+pub struct Reservation {
+    pub expire: Option<u64>,
+    pub addrs: Vec<Vec<u8>>,
+    pub voucher: Option<Vec<u8>>,
 }
 
-impl<'a> MessageRead<'a> for Reservation<'a> {
+
+impl Default for Reservation {
+    fn default() -> Self {
+        Self {
+            expire: None,
+            addrs: Vec::new(),
+            voucher: None,
+        }
+    }
+}
+
+impl<'a> MessageRead<'a> for Reservation {
     fn from_reader(r: &mut BytesReader, bytes: &'a [u8]) -> Result<Self> {
         let mut msg = Self::default();
         while !r.is_eof() {
             match r.next_tag(bytes) {
-                Ok(8) => msg.expire = r.read_uint64(bytes)?,
-                Ok(18) => msg.addrs.push(r.read_bytes(bytes).map(Cow::Borrowed)?),
-                Ok(26) => msg.voucher = r.read_bytes(bytes).map(Cow::Borrowed)?,
+                Ok(8) => msg.expire = Some(r.read_uint64(bytes)?),
+                Ok(18) => msg.addrs.push(r.read_bytes(bytes)?.to_owned()),
+                Ok(26) => msg.voucher = Some(r.read_bytes(bytes)?.to_owned()),
                 Ok(t) => { r.read_unknown(bytes, t)?; }
                 Err(e) => return Err(e),
             }
@@ -296,27 +341,37 @@ impl<'a> MessageRead<'a> for Reservation<'a> {
     }
 }
 
-impl<'a> MessageWrite for Reservation<'a> {
+impl MessageWrite for Reservation {
     fn get_size(&self) -> usize {
         0
-        + if self.expire == 0u64 { 0 } else { 1 + sizeof_varint(*(&self.expire) as u64) }
+        + if self.expire.is_some() { 1 + sizeof_varint((*(self.expire.as_ref().unwrap())) as u64) } else { 0 }
         + self.addrs.iter().map(|s| 1 + sizeof_len((s).len())).sum::<usize>()
-        + if self.voucher == Cow::Borrowed(b"") { 0 } else { 1 + sizeof_len((&self.voucher).len()) }
+        + if self.voucher.is_some() { 1 + sizeof_len((self.voucher.as_ref().unwrap()).len()) } else { 0 }
     }
 
     fn write_message<W: WriterBackend>(&self, w: &mut Writer<W>) -> Result<()> {
-        if self.expire != 0u64 { w.write_with_tag(8, |w| w.write_uint64(*&self.expire))?; }
-        for s in &self.addrs { w.write_with_tag(18, |w| w.write_bytes(&**s))?; }
-        if self.voucher != Cow::Borrowed(b"") { w.write_with_tag(26, |w| w.write_bytes(&**&self.voucher))?; }
+        if self.expire.is_some() { w.write_with_tag(8, |w| w.write_uint64(*(self.expire.as_ref().unwrap())))?; }
+        for s in &self.addrs { w.write_with_tag(18, |w| w.write_bytes(s))?; }
+        if self.voucher.is_some() { w.write_with_tag(26, |w| w.write_bytes(&self.voucher.as_ref().unwrap()))?; }
         Ok(())
     }
 }
 
 #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Debug, Default, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Limit {
-    pub duration: u32,
-    pub data: u64,
+    pub duration: Option<u32>,
+    pub data: Option<u64>,
+}
+
+
+impl Default for Limit {
+    fn default() -> Self {
+        Self {
+            duration: None,
+            data: None,
+        }
+    }
 }
 
 impl<'a> MessageRead<'a> for Limit {
@@ -324,8 +379,8 @@ impl<'a> MessageRead<'a> for Limit {
         let mut msg = Self::default();
         while !r.is_eof() {
             match r.next_tag(bytes) {
-                Ok(8) => msg.duration = r.read_uint32(bytes)?,
-                Ok(16) => msg.data = r.read_uint64(bytes)?,
+                Ok(8) => msg.duration = Some(r.read_uint32(bytes)?),
+                Ok(16) => msg.data = Some(r.read_uint64(bytes)?),
                 Ok(t) => { r.read_unknown(bytes, t)?; }
                 Err(e) => return Err(e),
             }
@@ -337,13 +392,13 @@ impl<'a> MessageRead<'a> for Limit {
 impl MessageWrite for Limit {
     fn get_size(&self) -> usize {
         0
-        + if self.duration == 0u32 { 0 } else { 1 + sizeof_varint(*(&self.duration) as u64) }
-        + if self.data == 0u64 { 0 } else { 1 + sizeof_varint(*(&self.data) as u64) }
+        + if self.duration.is_some() { 1 + sizeof_varint((*(self.duration.as_ref().unwrap())) as u64) } else { 0 }
+        + if self.data.is_some() { 1 + sizeof_varint((*(self.data.as_ref().unwrap())) as u64) } else { 0 }
     }
 
     fn write_message<W: WriterBackend>(&self, w: &mut Writer<W>) -> Result<()> {
-        if self.duration != 0u32 { w.write_with_tag(8, |w| w.write_uint32(*&self.duration))?; }
-        if self.data != 0u64 { w.write_with_tag(16, |w| w.write_uint64(*&self.data))?; }
+        if self.duration.is_some() { w.write_with_tag(8, |w| w.write_uint32(*(self.duration.as_ref().unwrap())))?; }
+        if self.data.is_some() { w.write_with_tag(16, |w| w.write_uint64(*(self.data.as_ref().unwrap())))?; }
         Ok(())
     }
 }
