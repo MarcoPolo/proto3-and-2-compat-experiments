@@ -354,7 +354,7 @@ mod test {
 
         let b3 = serialize_into_vec(&r3).unwrap();
         let b3to2 = deserialize_from_slice::<p2::HopMessage>(&b3).expect("should be decodable");
-        assert_eq!(b3to2.status, Some(0))
+        assert_eq!(b3to2.status, Some(p2::Status::OK))
     }
 
     #[test]
