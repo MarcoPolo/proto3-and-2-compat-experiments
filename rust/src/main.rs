@@ -1,8 +1,9 @@
 mod generated;
 
 use anyhow::{anyhow, Context};
-use quick_protobuf::{BytesReader, MessageWrite};
+use quick_protobuf::{BytesReader, Writer};
 use std::{fs::File, io::Read, vec};
+use std::io::BufWriter;
 
 use generated::p2;
 use generated::p3;
@@ -201,16 +202,21 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    let file = BufWriter::new(File::create(HOP_FILE)?);
+    let mut writer = Writer::new(file);
+
     // Generate 10_000 random messages
     for seed in 0..10_000 {
         let mut rng = StdRng::seed_from_u64(seed);
-
-        gen_hop_msg(&mut rng).write_file(&HOP_FILE)?;
+        writer.write_message(&gen_hop_msg(&mut rng))?
     }
+
+    let file = BufWriter::new(File::create(STOP_FILE)?);
+    let mut writer = Writer::new(file);
 
     for seed in 0..10_000 {
         let mut rng = StdRng::seed_from_u64(seed);
-        gen_stop_msg(&mut rng).write_file(&STOP_FILE)?;
+        writer.write_message(&gen_stop_msg(&mut rng))?
     }
 
     Ok(())
